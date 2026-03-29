@@ -21,6 +21,8 @@ class _NotificationsPageState extends State<NotificationsPage> {
       appBar: AppBar(
         title: const Text('Notifications'),
         centerTitle: false,
+        backgroundColor: AppColors.background,
+        elevation: 0,
       ),
       body: ListView(
         padding: const EdgeInsets.all(24),

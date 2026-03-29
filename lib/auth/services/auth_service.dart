@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'token_manager.dart';
 
+import '../../core/constants/api_constants.dart';
+
 class AuthService {
-  static const String authBaseUrl = 'http://127.0.0.1:8001/api/v1/accounts/user';
+  static const String authBaseUrl = ApiConstants.userEndpoint;
   // Use http://10.0.2.2:8000/api/v1/accounts/user for local Android Emulator testing if needed
 
   Future<bool> requestOtp(String email) async {
@@ -30,8 +32,10 @@ class AuthService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final token = data['access'];
+        final refresh = data['refresh'];
         if (token != null) {
           await TokenManager.saveAccessToken(token);
+          if (refresh != null) await TokenManager.saveRefreshToken(refresh);
           return true;
         }
       }
@@ -77,8 +81,10 @@ class AuthService {
       if (response.statusCode == 201) {
         final data = jsonDecode(response.body);
         final token = data['access'];
+        final refresh = data['refresh'];
         if (token != null) {
           await TokenManager.saveAccessToken(token);
+          if (refresh != null) await TokenManager.saveRefreshToken(refresh);
           return true;
         }
       } else {
@@ -126,8 +132,10 @@ class AuthService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final token = data['access'];
+        final refresh = data['refresh'];
         if (token != null) {
           await TokenManager.saveAccessToken(token);
+          if (refresh != null) await TokenManager.saveRefreshToken(refresh);
           return true;
         }
       } else {
@@ -161,6 +169,36 @@ class AuthService {
          throw Exception(e.toString().replaceFirst("Exception: ", ""));
       }
       throw Exception("Error logging in: $e");
+    }
+  }
+
+  Future<bool> refreshToken() async {
+    try {
+      final refresh = await TokenManager.getRefreshToken();
+      if (refresh == null) return false;
+
+      final response = await http.post(
+        Uri.parse('$authBaseUrl/token/refresh/'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'refresh': refresh}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final token = data['access'];
+        if (token != null) {
+          await TokenManager.saveAccessToken(token);
+          // SimpleJWT rotation might return a new refresh token
+          if (data['refresh'] != null) {
+            await TokenManager.saveRefreshToken(data['refresh']);
+          }
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      print("Token refresh error: $e");
+      return false;
     }
   }
 

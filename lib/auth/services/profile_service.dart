@@ -1,25 +1,20 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'token_manager.dart';
+import '../../shared/services/base_service.dart';
 
-class ProfileService {
+import '../../core/constants/api_constants.dart';
+
+class ProfileService extends BaseService {
   // Use the same base url structure as AuthService. Adjust if necessary.
-  static const String baseUrl = 'http://10.0.2.2:8001/api/v1/accounts/user';
-
-  Future<Map<String, String>> _getHeaders() async {
-    final token = await TokenManager.getAccessToken();
-    return {
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
-  }
+  static const String baseUrl = ApiConstants.userEndpoint;
 
   Future<Map<String, dynamic>> getProfile() async {
     try {
-      final response = await http.get(
+      final response = await performRequest((headers) => http.get(
         Uri.parse('$baseUrl/profile/'),
-        headers: await _getHeaders(),
-      );
+        headers: headers,
+      ));
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
@@ -33,11 +28,11 @@ class ProfileService {
 
   Future<bool> updateProfile(Map<String, dynamic> data) async {
     try {
-      final response = await http.patch(
+      final response = await performRequest((headers) => http.patch(
         Uri.parse('$baseUrl/profile/'),
-        headers: await _getHeaders(),
+        headers: headers,
         body: jsonEncode(data),
-      );
+      ));
 
       if (response.statusCode == 200) {
         return true;
@@ -73,14 +68,14 @@ class ProfileService {
 
   Future<bool> changePassword(String oldPassword, String newPassword) async {
     try {
-      final response = await http.post(
+      final response = await performRequest((headers) => http.post(
         Uri.parse('$baseUrl/change-password/'),
-        headers: await _getHeaders(),
+        headers: headers,
         body: jsonEncode({
           'old_password': oldPassword,
           'new_password': newPassword,
         }),
-      );
+      ));
 
       if (response.statusCode == 200) {
         return true;

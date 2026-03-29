@@ -23,7 +23,10 @@ class _MainWrapperState extends State<MainWrapper> {
   void initState() {
     super.initState();
     _pages = [
-      const DashboardPage(),
+      DashboardPage(
+        onViewAllManagement: () => setState(() => _currentIndex = 2),
+        onViewAllSites: () => setState(() => _currentIndex = 1),
+      ),
       const SiteListPage(),
       QuickMenuPage(onNavigateToTab: (index) {
         setState(() => _currentIndex = index);
@@ -38,66 +41,39 @@ class _MainWrapperState extends State<MainWrapper> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      extendBody: true, // Seamless background for floating navbar
       body: IndexedStack(index: _currentIndex, children: _pages),
       bottomNavigationBar: Container(
-        height: 100, // Extra height for padding
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-        child: Container(
-          decoration: BoxDecoration(
-            color: colorScheme.surface.withValues(alpha: 0.95), // Slight transparency for glass effect
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: AppColors.textMuted.withValues(alpha: 0.1)),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.08),
-                blurRadius: 32,
-                offset: const Offset(0, 12),
-              ),
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -2))],
+        ),
+        child: SafeArea(
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) => setState(() => _currentIndex = index),
+            backgroundColor: Colors.white,
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: AppColors.primary,
+            unselectedItemColor: AppColors.textMuted.withValues(alpha: 0.6),
+            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 11),
+            elevation: 0,
+            items: [
+              _buildBarItem(Icons.grid_view_rounded, 'Home'),
+              _buildBarItem(Icons.architecture_rounded, 'Sites'),
+              _buildBarItem(Icons.apps_rounded, 'Menu'),
+              _buildBarItem(Icons.groups_rounded, 'Employees'),
+              _buildBarItem(Icons.settings_rounded, 'Settings'),
             ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(32),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildNavItem(Icons.grid_view_rounded, 'Home', 0),
-                _buildNavItem(Icons.architecture_rounded, 'Sites', 1),
-                _buildNavItem(Icons.apps_rounded, 'Menu', 2),
-                _buildNavItem(Icons.groups_rounded, 'Staff', 3),
-                _buildNavItem(Icons.settings_rounded, 'Settings', 4),
-              ],
-            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    final isSelected = _currentIndex == index;
-    return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? Theme.of(context).colorScheme.secondary.withValues(alpha: 0.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Icon(
-          icon,
-          size: isSelected ? 26 : 22,
-          color: isSelected ? AppColors.accent : AppColors.textMuted.withValues(alpha: 0.6),
-        ),
-      ),
-    );
+  BottomNavigationBarItem _buildBarItem(IconData icon, String label) {
+    return BottomNavigationBarItem(icon: Icon(icon), activeIcon: Icon(icon, color: AppColors.primary), label: label);
   }
+
+
 }

@@ -1,4 +1,5 @@
-import 'dart:io';
+import 'dart:io' show File;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../theme/app_theme.dart';
@@ -27,7 +28,7 @@ class _OrganizationCreatePageState extends State<OrganizationCreatePage> {
   final _postalCodeController = TextEditingController();
   
   int _currentStep = 0;
-  File? _logo;
+  XFile? _logo;
   final _picker = ImagePicker();
   
   final OrganizationService _organizationService = OrganizationService();
@@ -135,7 +136,7 @@ class _OrganizationCreatePageState extends State<OrganizationCreatePage> {
   Future<void> _pickLogo() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
     if (image != null) {
-      setState(() => _logo = File(image.path));
+      setState(() => _logo = image);
     }
   }
 
@@ -277,7 +278,9 @@ class _OrganizationCreatePageState extends State<OrganizationCreatePage> {
                 child: CircleAvatar(
                   radius: 50,
                   backgroundColor: AppColors.surface,
-                  backgroundImage: _logo != null ? FileImage(_logo!) : null,
+                  backgroundImage: _logo != null 
+                    ? (kIsWeb ? NetworkImage(_logo!.path) : FileImage(File(_logo!.path)) as ImageProvider)
+                    : null,
                   child: _logo == null ? const Icon(Icons.add_a_photo_outlined, size: 32, color: AppColors.textMuted) : null,
                 ),
               ),

@@ -19,6 +19,8 @@ class _AppearancePageState extends State<AppearancePage> {
       appBar: AppBar(
         title: const Text('Appearance'),
         centerTitle: false,
+        backgroundColor: AppColors.background,
+        elevation: 0,
       ),
       body: ListView(
         padding: const EdgeInsets.all(24),

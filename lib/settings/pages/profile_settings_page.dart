@@ -61,13 +61,13 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
         'phone_number': _phoneController.text.trim(),
         'dob': _dobController.text.trim(),
       };
-      
+
       final success = await _profileService.updateProfile(data);
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile updated successfully!')),
         );
-        Navigator.pop(context); // Go back after save
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
@@ -93,15 +93,18 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Profile Settings')),
+        appBar: AppBar(title: const Text('Profile Settings'), backgroundColor: AppColors.background, elevation: 0),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Profile Settings'),
         centerTitle: false,
+        backgroundColor: AppColors.background,
+        elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
@@ -110,45 +113,38 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-               _buildTextField(
-                controller: _firstNameController,
-                label: 'First Name',
-                icon: Icons.person_outline,
-                validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 16),
-              _buildTextField(
-                controller: _lastNameController,
-                label: 'Last Name',
-                icon: Icons.person_outline,
-                validator: (val) => val == null || val.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 16),
-              _buildTextField(
-                controller: _phoneController,
-                label: 'Phone Number',
-                icon: Icons.phone_outlined,
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: 16),
-              _buildTextField(
-                controller: _dobController,
-                label: 'Date of Birth (YYYY-MM-DD)',
-                icon: Icons.calendar_today_outlined,
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: _isSaving ? null : _saveProfile,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  elevation: 0,
+              Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _label('FIRST NAME'),
+                  _field(controller: _firstNameController, hint: 'John', validator: (v) => v == null || v.isEmpty ? 'Required' : null),
+                ])),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _label('LAST NAME'),
+                  _field(controller: _lastNameController, hint: 'Doe', validator: (v) => v == null || v.isEmpty ? 'Required' : null),
+                ])),
+              ]),
+              const SizedBox(height: 20),
+              _label('PHONE NUMBER'),
+              _field(controller: _phoneController, hint: '+91 98765 43210', keyboardType: TextInputType.phone),
+              const SizedBox(height: 20),
+              _label('DATE OF BIRTH'),
+              _field(controller: _dobController, hint: 'YYYY-MM-DD'),
+              const SizedBox(height: 40),
+              SizedBox(
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _isSaving ? null : _saveProfile,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text('Save Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ),
-                child: _isSaving 
-                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text('Save Changes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -157,10 +153,24 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
     );
   }
 
-  Widget _buildTextField({
+  Widget _label(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontWeight: FontWeight.w800,
+          color: AppColors.textSecondary,
+          fontSize: 11,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _field({
     required TextEditingController controller,
-    required String label,
-    required IconData icon,
+    required String hint,
     TextInputType? keyboardType,
     String? Function(String?)? validator,
   }) {
@@ -169,8 +179,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
       keyboardType: keyboardType,
       validator: validator,
       decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: AppColors.textMuted),
+        hintText: hint,
         filled: true,
         fillColor: Colors.white,
         border: OutlineInputBorder(
@@ -184,6 +193,10 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: const BorderSide(color: AppColors.primary),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: AppColors.error),
         ),
       ),
     );

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
-import '../services/client_service.dart';
 import '../../shared/models/location_models.dart';
 import '../../shared/services/location_service.dart';
+import '../models/client_model.dart';
+import '../services/client_service.dart';
 
 class ClientCreatePage extends StatefulWidget {
-  const ClientCreatePage({super.key});
+  final ClientModel? client; // null = create, non-null = edit
+
+  const ClientCreatePage({super.key, this.client});
 
   @override
   State<ClientCreatePage> createState() => _ClientCreatePageState();
@@ -13,154 +16,203 @@ class ClientCreatePage extends StatefulWidget {
 
 class _ClientCreatePageState extends State<ClientCreatePage> {
   final _formKey = GlobalKey<FormState>();
-  
-  // Identity
+  final ClientService _service = ClientService();
+  final LocationService _locationService = LocationService();
+
+  bool _isSaving = false;
+  bool _isLoadingLocations = true;
+
+  // ── Client fields ──
   final _nameController = TextEditingController();
   final _codeController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
   bool _isActive = true;
 
-  // Address
-  final _addressLine1Controller = TextEditingController();
-  final _addressLine2Controller = TextEditingController();
-  final _cityController = TextEditingController();
-  final _postalCodeController = TextEditingController();
-
-  // Primary Contact
-  final _contactNameController = TextEditingController();
-  final _contactDesignationController = TextEditingController();
-  final _contactPhoneController = TextEditingController();
-  final _contactEmailController = TextEditingController();
-
-  final ClientService _clientService = ClientService();
-  final LocationService _locationService = LocationService();
-  
-  bool _isLoading = false;
-
-  // Location Data
+  // ── Multiple Addresses ──
+  final List<Map<String, dynamic>> _addressFields = [];
   List<CountryModel> _countries = [];
   List<StateModel> _states = [];
   List<DistrictModel> _districts = [];
   List<AddressTypeModel> _addressTypes = [];
 
-  CountryModel? _selectedCountry;
-  StateModel? _selectedState;
-  DistrictModel? _selectedDistrict;
-  AddressTypeModel? _selectedAddressType;
+
+  // ── Multiple Contacts (Email/Mobile) ──
+  List<ContactTypeModel> _contactTypes = [];
+  final List<Map<String, dynamic>> _emailFields = [];
+  final List<Map<String, dynamic>> _mobileFields = [];
+
+  bool get _isEditing => widget.client != null;
 
   @override
   void initState() {
     super.initState();
-    _fetchInitialData();
-  }
-
-  Future<void> _fetchInitialData() async {
-    setState(() => _isLoading = true);
-    try {
-      final futures = await Future.wait([
-        _locationService.getCountries(),
-        _locationService.getAddressTypes(),
-      ]);
-      setState(() {
-        _countries = futures[0] as List<CountryModel>;
-        _addressTypes = futures[1] as List<AddressTypeModel>;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error loading location data: $e")));
+    if (_isEditing) {
+      final c = widget.client!;
+      _nameController.text = c.name;
+      _codeController.text = c.code;
+      _isActive = c.isActive;
+          for (var addrObj in c.addresses) {
+        final d = addrObj.addressDetails;
+        if (d != null) {
+          _addAddressField(
+            initialLine1: d.line1,
+            initialLine2: d.line2,
+            initialCity: d.city,
+            initialPostalCode: d.postalCode,
+            initialTypeId: d.addressTypeId,
+            initialCountryId: d.countryId,
+            initialStateId: d.stateId,
+            initialDistrictId: d.districtId,
+          );
+        }
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
 
-  Future<void> _onCountryChanged(CountryModel? country) async {
-    setState(() {
-      _selectedCountry = country;
-      _selectedState = null;
-      _selectedDistrict = null;
-      _states = [];
-      _districts = [];
-    });
-    if (country != null) {
-      try {
-        final st = await _locationService.getStates(country.id);
-        setState(() => _states = st);
-      } catch (e) {
-         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching states: $e")));
+      for (var e in c.emails) {
+        _addEmailField(initialValue: e.email, initialTypeId: e.contactTypeId);
       }
-    }
-  }
-
-  Future<void> _onStateChanged(StateModel? state) async {
-    setState(() {
-      _selectedState = state;
-      _selectedDistrict = null;
-      _districts = [];
-    });
-    if (state != null) {
-      try {
-        final dist = await _locationService.getDistricts(state.id);
-        setState(() => _districts = dist);
-      } catch (e) {
-         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching districts: $e")));
+      for (var m in c.mobiles) {
+        _addMobileField(initialValue: m.number, initialTypeId: m.contactTypeId);
       }
-    }
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    if (_selectedDistrict == null || _selectedAddressType == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select Address Type and District.")));
-      return;
     }
     
-    setState(() => _isLoading = true);
+    if (_addressFields.isEmpty) _addAddressField();
+    if (_emailFields.isEmpty) _addEmailField();
+    if (_mobileFields.isEmpty) _addMobileField();
+    
+    if (!_isEditing) {
+      _fetchNextCode();
+    }
+    
+    _initLocations();
+  }
+
+  Future<void> _fetchNextCode() async {
     try {
-      Map<String, dynamic> data = {
-        "name": _nameController.text.trim(),
-        "code": _codeController.text.trim(),
-        "email": _emailController.text.trim(),
-        "phone": _phoneController.text.trim(),
-        "is_active": _isActive,
-        "addresses": [
-          {
-            "address_type": _selectedAddressType!.id,
-            "address_line_1": _addressLine1Controller.text.trim(),
-            "address_line_2": _addressLine2Controller.text.trim(),
-            "district": _selectedDistrict!.id,
-            "city": _cityController.text.trim(),
-            "postal_code": _postalCodeController.text.trim(),
-            "is_primary": true
-          }
-        ],
-        "contacts": []
-      };
-
-      if (_contactNameController.text.trim().isNotEmpty) {
-        data["contacts"].add({
-          "name": _contactNameController.text.trim(),
-          "designation": _contactDesignationController.text.trim(),
-          "phone": _contactPhoneController.text.trim(),
-          "email": _contactEmailController.text.trim(),
-          "is_primary": true
-        });
-      }
-
-      await _clientService.createClient(data);
-
+      final code = await _service.getNextCode();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Client created successfully!")));
-        Navigator.pop(context, true); 
+        setState(() => _codeController.text = code);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
+      // Silently fail or log, as this is an automatic background fetch
+      debugPrint("Error fetching next code: $e");
+    }
+  }
+
+  void _addAddressField({
+    String initialLine1 = '',
+    String initialLine2 = '',
+    String initialCity = '',
+    String initialPostalCode = '',
+    String? initialTypeId,
+    String? initialCountryId,
+    String? initialStateId,
+    String? initialDistrictId,
+  }) {
+    setState(() {
+      _addressFields.add({
+        'line1': TextEditingController(text: initialLine1),
+        'line2': TextEditingController(text: initialLine2),
+        'city': TextEditingController(text: initialCity),
+        'postalCode': TextEditingController(text: initialPostalCode),
+        'typeId': initialTypeId,
+        'countryId': initialCountryId,
+        'stateId': initialStateId,
+        'districtId': initialDistrictId,
+        'states': <StateModel>[],
+        'districts': <DistrictModel>[],
+      });
+    });
+  }
+
+  void _addEmailField({String initialValue = '', String? initialTypeId}) {
+    setState(() {
+      _emailFields.add({
+        'controller': TextEditingController(text: initialValue),
+        'typeId': initialTypeId,
+        'type': _contactTypes.isNotEmpty ? _contactTypes.first : null,
+      });
+    });
+  }
+
+  void _addMobileField({String initialValue = '', String? initialTypeId}) {
+    setState(() {
+      _mobileFields.add({
+        'controller': TextEditingController(text: initialValue),
+        'typeId': initialTypeId,
+        'type': _contactTypes.isNotEmpty ? _contactTypes.first : null,
+      });
+    });
+  }
+
+  Future<void> _initLocations() async {
+    try {
+      final countries = await _locationService.getCountries();
+      final contactTypes = await _locationService.getContactTypes();
+      final addressTypes = await _locationService.getAddressTypes();
+      
+      if (!mounted) return;
+
+      setState(() {
+        _countries = countries;
+        _contactTypes = contactTypes;
+        _addressTypes = addressTypes;
+      });
+
+      // Match types for emails/mobiles
+      for (var f in _emailFields) {
+        f['type'] = _contactTypes.where((t) => t.id == f['typeId']).firstOrNull ?? (_contactTypes.isNotEmpty ? _contactTypes.first : null);
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      for (var f in _mobileFields) {
+        f['type'] = _contactTypes.where((t) => t.id == f['typeId']).firstOrNull ?? (_contactTypes.isNotEmpty ? _contactTypes.first : null);
+      }
+
+      // Match details for addresses
+      for (var i = 0; i < _addressFields.length; i++) {
+        var f = _addressFields[i];
+        f['selectedType'] = _addressTypes.where((t) => t.id == f['typeId']).firstOrNull ?? (_addressTypes.isNotEmpty ? _addressTypes.first : null);
+        f['selectedCountry'] = _countries.where((c) => c.id == f['countryId']).firstOrNull;
+        
+        if (f['selectedCountry'] != null) {
+          final states = await _locationService.getStates(f['selectedCountry'].id);
+          f['states'] = states;
+          f['selectedState'] = states.where((s) => s.id == f['stateId']).firstOrNull;
+          
+          if (f['selectedState'] != null) {
+            final districts = await _locationService.getDistricts(f['selectedState'].id);
+            f['districts'] = districts;
+            f['selectedDistrict'] = districts.where((d) => d.id == f['districtId']).firstOrNull;
+          }
+        }
+      }
+
+      setState(() => _isLoadingLocations = false);
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingLocations = false);
+    }
+  }
+
+  Future<void> _onAddressCountryChanged(int idx, CountryModel? country) async {
+    setState(() {
+      _addressFields[idx]['selectedCountry'] = country;
+      _addressFields[idx]['selectedState'] = null;
+      _addressFields[idx]['selectedDistrict'] = null;
+      _addressFields[idx]['states'] = <StateModel>[];
+      _addressFields[idx]['districts'] = <DistrictModel>[];
+    });
+    if (country != null) {
+      final states = await _locationService.getStates(country.id);
+      if (mounted) setState(() => _addressFields[idx]['states'] = states);
+    }
+  }
+
+  Future<void> _onAddressStateChanged(int idx, StateModel? state) async {
+    setState(() {
+      _addressFields[idx]['selectedState'] = state;
+      _addressFields[idx]['selectedDistrict'] = null;
+      _addressFields[idx]['districts'] = <DistrictModel>[];
+    });
+    if (state != null) {
+      final districts = await _locationService.getDistricts(state.id);
+      if (mounted) setState(() => _addressFields[idx]['districts'] = districts);
     }
   }
 
@@ -168,221 +220,409 @@ class _ClientCreatePageState extends State<ClientCreatePage> {
   void dispose() {
     _nameController.dispose();
     _codeController.dispose();
-    _emailController.dispose();
-    _phoneController.dispose();
-    _addressLine1Controller.dispose();
-    _addressLine2Controller.dispose();
-    _cityController.dispose();
-    _postalCodeController.dispose();
-    _contactNameController.dispose();
-    _contactDesignationController.dispose();
-    _contactPhoneController.dispose();
-    _contactEmailController.dispose();
+    for (var f in _addressFields) {
+      f['line1']?.dispose();
+      f['line2']?.dispose();
+      f['city']?.dispose();
+      f['postalCode']?.dispose();
+    }
+    for (var f in _emailFields) {
+      f['controller']?.dispose();
+    }
+    for (var f in _mobileFields) {
+      f['controller']?.dispose();
+    }
     super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isSaving = true);
+    try {
+      // Build addresses list
+      final addresses = _addressFields
+          .where((f) => f['line1'].text.trim().isNotEmpty && f['selectedDistrict'] != null)
+          .map((f) => {
+                'line_1': f['line1'].text.trim(),
+                'line_2': f['line2'].text.trim(),
+                'city': f['city'].text.trim(),
+                'postal_code': f['postalCode'].text.trim(),
+                'district': (f['selectedDistrict'] as DistrictModel).id,
+                'address_type': (f['selectedType'] as AddressTypeModel?)?.id,
+              })
+          .toList();
+
+      // Build contacts list
+
+      // Build emails list
+      final emailsList = _emailFields
+          .where((f) => f['controller'].text.trim().isNotEmpty)
+          .map((f) => {
+                'email': f['controller'].text.trim(),
+                'contact_type': (f['type'] as ContactTypeModel?)?.id,
+              })
+          .toList();
+
+      // Build mobiles list
+      final mobilesList = _mobileFields
+          .where((f) => f['controller'].text.trim().isNotEmpty)
+          .map((f) => {
+                'number': f['controller'].text.trim(),
+                'contact_type': (f['type'] as ContactTypeModel?)?.id,
+              })
+          .toList();
+
+      final data = {
+        'name': _nameController.text.trim(),
+        'code': _codeController.text.trim(),
+        'is_active': _isActive,
+        'address_input': addresses,
+        'email_input': emailsList,
+        'mobile_input': mobilesList,
+      };
+
+      if (_isEditing) {
+        await _service.updateClient(widget.client!.id, data);
+      } else {
+        await _service.createClient(data);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isEditing ? "Client updated!" : "Client created!"),
+            backgroundColor: AppColors.success,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e"), backgroundColor: AppColors.error),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingLocations) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Create New Client"),
-        centerTitle: true,
-        elevation: 0,
-      ),
       backgroundColor: AppColors.background,
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+      appBar: AppBar(
+        backgroundColor: AppColors.background,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        title: Text(_isEditing ? "Edit Client" : "New Client", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        centerTitle: false,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: _isSaving
+          ? const Center(child: CircularProgressIndicator())
+          : Form(
+              key: _formKey,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _sectionTitle("Client Details"),
+                    _card([
+                      _label("CLIENT NAME *"),
+                      _field(_nameController, "e.g., Acme Corp", validator: (v) => v == null || v.isEmpty ? "Required" : null),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _label("CLIENT CODE"),
+                                _field(_codeController, "e.g., CLT-001"),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _label("STATUS"),
+                                Container(
+                                  height: 56,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.background.withValues(alpha: 0.3),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: AppColors.textMuted.withValues(alpha: 0.1)),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        _isActive ? "Active" : "Inactive",
+                                        style: TextStyle(color: _isActive ? AppColors.success : AppColors.error, fontWeight: FontWeight.bold),
+                                      ),
+                                      Switch(
+                                        value: _isActive,
+                                        onChanged: (v) => setState(() => _isActive = v),
+                                        activeColor: AppColors.success,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ]),
+                    const SizedBox(height: 32),
+                    _sectionTitle("Contact Info"),
+                    _card([
+                      _emailSection(),
+                      const SizedBox(height: 24),
+                      _mobileSection(),
+                    ]),
+                    const SizedBox(height: 32),
+                    _sectionTitle("Addresses"),
+                    _addressSection(),
+                    const SizedBox(height: 40),
+                  ],
+                ),
+              ),
+            ),
+      bottomNavigationBar: Container(
+        height: 90,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 20, offset: const Offset(0, -5))],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            child: Row(
               children: [
-                const _SectionTitle(title: "Client Identity"),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _nameController,
-                  decoration: _buildInputDecoration("Client Name", Icons.business_rounded),
-                  validator: (value) => (value == null || value.isEmpty) ? "Required" : null,
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+                    child: const Text("Cancel", style: TextStyle(fontWeight: FontWeight.bold)),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _codeController,
-                  decoration: _buildInputDecoration("Client Code (Unique)", Icons.tag_rounded),
-                  validator: (value) => (value == null || value.isEmpty) ? "Required" : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: _buildInputDecoration("HQ Email", Icons.alternate_email_rounded),
-                  keyboardType: TextInputType.emailAddress,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _phoneController,
-                  decoration: _buildInputDecoration("HQ Phone", Icons.phone_android_rounded),
-                  keyboardType: TextInputType.phone,
-                ),
-                SwitchListTile(
-                  title: const Text("Is Active Client?", style: TextStyle(fontWeight: FontWeight.w600)),
-                  value: _isActive,
-                  onChanged: (val) => setState(() => _isActive = val),
-                  activeColor: AppColors.primary,
-                  contentPadding: EdgeInsets.zero,
-                ),
-
-                const SizedBox(height: 32),
-                const _SectionTitle(title: "Primary HQ Address"),
-                const SizedBox(height: 16),
-                
-                DropdownButtonFormField<AddressTypeModel>(
-                  value: _selectedAddressType,
-                  decoration: _buildInputDecoration("Address Type", Icons.local_offer_rounded),
-                  items: _addressTypes.map((t) => DropdownMenuItem(value: t, child: Text(t.name))).toList(),
-                  onChanged: (val) => setState(() => _selectedAddressType = val),
-                  validator: (v) => v == null ? "Required" : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _addressLine1Controller,
-                  decoration: _buildInputDecoration("Address Line 1", Icons.signpost_rounded),
-                  validator: (v) => (v == null || v.isEmpty) ? "Required" : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _addressLine2Controller,
-                  decoration: _buildInputDecoration("Address Line 2 (Optional)", Icons.signpost_rounded),
-                ),
-                const SizedBox(height: 16),
-                
-                DropdownButtonFormField<CountryModel>(
-                  value: _selectedCountry,
-                  decoration: _buildInputDecoration("Country", Icons.public_rounded),
-                  items: _countries.map((c) => DropdownMenuItem(value: c, child: Text(c.name))).toList(),
-                  onChanged: _onCountryChanged,
-                  validator: (v) => v == null ? "Required" : null,
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<StateModel>(
-                  value: _selectedState,
-                  decoration: _buildInputDecoration("State", Icons.map_rounded),
-                  items: _states.map((s) => DropdownMenuItem(value: s, child: Text(s.name))).toList(),
-                  onChanged: _states.isEmpty ? null : _onStateChanged,
-                  validator: (v) => v == null ? "Required" : null,
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<DistrictModel>(
-                  value: _selectedDistrict,
-                  decoration: _buildInputDecoration("District", Icons.location_city_rounded),
-                  items: _districts.map((d) => DropdownMenuItem(value: d, child: Text(d.name))).toList(),
-                  onChanged: _districts.isEmpty ? null : (val) => setState(() => _selectedDistrict = val),
-                  validator: (v) => v == null ? "Required" : null,
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _cityController,
-                        decoration: _buildInputDecoration("City", Icons.location_on_rounded),
-                        validator: (v) => (v == null || v.isEmpty) ? "Required" : null,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _postalCodeController,
-                        decoration: _buildInputDecoration("Postal Code", Icons.markunread_mailbox_rounded),
-                        validator: (v) => (v == null || v.isEmpty) ? "Required" : null,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 32),
-                
-                const _SectionTitle(title: "Primary Contact Person (Optional)"),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _contactNameController,
-                  decoration: _buildInputDecoration("Full Name", Icons.person_rounded),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _contactDesignationController,
-                  decoration: _buildInputDecoration("Designation", Icons.work_rounded),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _contactEmailController,
-                        decoration: _buildInputDecoration("Email", Icons.email_rounded),
-                        keyboardType: TextInputType.emailAddress,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _contactPhoneController,
-                        decoration: _buildInputDecoration("Phone", Icons.phone_rounded),
-                        keyboardType: TextInputType.phone,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 48),
-                SizedBox(
-                  height: 56,
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
                   child: ElevatedButton(
-                    onPressed: _submit,
+                    onPressed: _isSaving ? null : _save,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      elevation: 2,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                     ),
-                    child: const Text("Save Client", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    child: Text(_isEditing ? "Update" : "Create", style: const TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
             ),
           ),
         ),
-    );
-  }
-
-  InputDecoration _buildInputDecoration(String label, IconData icon) {
-    return InputDecoration(
-      labelText: label,
-      prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
-      filled: true,
-      fillColor: Colors.white,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: AppColors.textMuted.withValues(alpha: 0.2)),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: AppColors.textMuted.withValues(alpha: 0.2)),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: AppColors.primary, width: 2),
       ),
     );
   }
-}
 
-class _SectionTitle extends StatelessWidget {
-  final String title;
-  const _SectionTitle({required this.title});
+  Widget _sectionTitle(String title) => Padding(
+        padding: const EdgeInsets.only(bottom: 12, left: 4),
+        child: Text(title.toUpperCase(), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: AppColors.textSecondary, letterSpacing: 1.2)),
+      );
 
-  @override
-  Widget build(BuildContext context) {
-     return Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary));
+  Widget _card(List<Widget> children) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      );
+
+  Widget _label(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.w900, color: AppColors.textSecondary, fontSize: 10, letterSpacing: 1.2)),
+      );
+
+  Widget _field(TextEditingController ctrl, String hint, {TextInputType? keyboardType, String? Function(String?)? validator}) => TextFormField(
+        controller: ctrl,
+        keyboardType: keyboardType,
+        validator: validator,
+        decoration: InputDecoration(
+          hintText: hint,
+          filled: true,
+          fillColor: AppColors.background.withValues(alpha: 0.3),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: AppColors.textMuted.withValues(alpha: 0.1))),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: AppColors.accent)),
+          errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.red)),
+        ),
+      );
+
+  Widget _dropdown<T>({required T? value, required String hint, required List<DropdownMenuItem<T>> items, required ValueChanged<T?>? onChanged, bool enabled = true}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: enabled ? AppColors.background.withValues(alpha: 0.3) : AppColors.background.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.textMuted.withValues(alpha: 0.1)),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<T>(
+            value: value,
+            isExpanded: true,
+            hint: Text(hint, style: const TextStyle(fontSize: 13, color: AppColors.textMuted)),
+            items: enabled ? items : null,
+            onChanged: enabled ? onChanged : null,
+            icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary),
+          ),
+        ),
+      );
+
+  Widget _emailSection() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        _label("EMAILS"),
+        TextButton.icon(onPressed: _addEmailField, icon: const Icon(Icons.add, size: 16), label: const Text("Add", style: TextStyle(fontSize: 12))),
+      ]),
+      ..._emailFields.asMap().entries.map((entry) {
+        int idx = entry.key;
+        var field = entry.value;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(children: [
+            Expanded(
+              flex: 2,
+              child: _dropdown<ContactTypeModel>(
+                value: field['type'],
+                hint: "Type",
+                items: _contactTypes.map((t) => DropdownMenuItem(value: t, child: Text(t.name))).toList(),
+                onChanged: (v) => setState(() => _emailFields[idx]['type'] = v),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 4,
+              child: _field(field['controller'] as TextEditingController, "email@example.com", keyboardType: TextInputType.emailAddress),
+            ),
+            if (_emailFields.length > 1)
+              IconButton(
+                icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 20),
+                onPressed: () => setState(() => _emailFields.removeAt(idx)),
+              ),
+          ]),
+        );
+      }),
+    ]);
+  }
+
+  Widget _mobileSection() {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        _label("MOBILES"),
+        TextButton.icon(onPressed: _addMobileField, icon: const Icon(Icons.add, size: 16), label: const Text("Add", style: TextStyle(fontSize: 12))),
+      ]),
+      ..._mobileFields.asMap().entries.map((entry) {
+        int idx = entry.key;
+        var field = entry.value;
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(children: [
+            Expanded(
+              flex: 2,
+              child: _dropdown<ContactTypeModel>(
+                value: field['type'],
+                hint: "Type",
+                items: _contactTypes.map((t) => DropdownMenuItem(value: t, child: Text(t.name))).toList(),
+                onChanged: (v) => setState(() => _mobileFields[idx]['type'] = v),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 4,
+              child: _field(field['controller'] as TextEditingController, "+91 ...", keyboardType: TextInputType.phone),
+            ),
+            if (_mobileFields.length > 1)
+              IconButton(
+                icon: const Icon(Icons.remove_circle_outline, color: Colors.red, size: 20),
+                onPressed: () => setState(() => _mobileFields.removeAt(idx)),
+              ),
+          ]),
+        );
+      }),
+    ]);
+  }
+
+  Widget _addressSection() {
+    return Column(
+      children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const SizedBox(),
+          TextButton.icon(onPressed: _addAddressField, icon: const Icon(Icons.add_location_alt_rounded, size: 16), label: const Text("Add Address", style: TextStyle(fontSize: 12))),
+        ]),
+        ..._addressFields.asMap().entries.map((entry) {
+          int idx = entry.key;
+          var f = entry.value;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                _label("ADDRESS #${idx + 1}"),
+                if (_addressFields.length > 1)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                    onPressed: () => setState(() => _addressFields.removeAt(idx)),
+                  ),
+              ]),
+              const SizedBox(height: 8),
+              _label("ADDRESS TYPE"),
+              _dropdown<AddressTypeModel>(value: f['selectedType'], hint: "Select Type", items: _addressTypes.map((t) => DropdownMenuItem(value: t, child: Text(t.name))).toList(), onChanged: (v) => setState(() => f['selectedType'] = v)),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_label("COUNTRY"), _dropdown<CountryModel>(value: f['selectedCountry'], hint: "Country", items: _countries.map((c) => DropdownMenuItem(value: c, child: Text(c.name))).toList(), onChanged: (v) => _onAddressCountryChanged(idx, v))])),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_label("STATE"), _dropdown<StateModel>(value: f['selectedState'], hint: "State", items: (f['states'] as List<StateModel>).map((s) => DropdownMenuItem(value: s, child: Text(s.name))).toList(), onChanged: f['selectedCountry'] != null ? (v) => _onAddressStateChanged(idx, v) : null, enabled: f['selectedCountry'] != null)]),
+                )
+              ]),
+              const SizedBox(height: 16),
+              _label("DISTRICT"),
+              _dropdown<DistrictModel>(value: f['selectedDistrict'], hint: "District", items: (f['districts'] as List<DistrictModel>).map((d) => DropdownMenuItem(value: d, child: Text(d.name))).toList(), onChanged: f['selectedState'] != null ? (v) => setState(() => f['selectedDistrict'] = v) : null, enabled: f['selectedState'] != null),
+              const SizedBox(height: 16),
+              _label("STREET ADDRESS (LINE 1)"),
+              _field(f['line1'] as TextEditingController, "Building No., Street Name"),
+              const SizedBox(height: 16),
+              _label("ADDRESS LINE 2"),
+              _field(f['line2'] as TextEditingController, "Suite, Floor, Landmark"),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(flex: 2, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_label("CITY"), _field(f['city'] as TextEditingController, "City")])),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [_label("POSTAL CODE"), _field(f['postalCode'] as TextEditingController, "Zip")])),
+              ]),
+            ]),
+          );
+        }).toList(),
+      ],
+    );
   }
 }

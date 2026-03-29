@@ -3,6 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 class TokenManager {
   static const _storage = FlutterSecureStorage();
   static const _keyAccessToken = 'access_token';
+  static const _keyRefreshToken = 'refresh_token';
   static const _keyOrgId = 'organization_id';
   static const _keyOrgName = 'organization_name';
   static const _keyOrgLogo = 'organization_logo';
@@ -13,6 +14,14 @@ class TokenManager {
 
   static Future<String?> getAccessToken() async {
     return await _storage.read(key: _keyAccessToken);
+  }
+
+  static Future<void> saveRefreshToken(String token) async {
+    await _storage.write(key: _keyRefreshToken, value: token);
+  }
+
+  static Future<String?> getRefreshToken() async {
+    return await _storage.read(key: _keyRefreshToken);
   }
 
   static Future<void> saveOrganizationDetails({
@@ -47,6 +56,7 @@ class TokenManager {
 
   static Future<void> clearAll() async {
     await _storage.delete(key: _keyAccessToken);
+    await _storage.delete(key: _keyRefreshToken);
     await _storage.delete(key: _keyOrgId);
     await _storage.delete(key: _keyOrgName);
     await _storage.delete(key: _keyOrgLogo);

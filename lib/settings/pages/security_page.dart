@@ -71,6 +71,8 @@ class _SecurityPageState extends State<SecurityPage> {
       appBar: AppBar(
         title: const Text('Security Settings'),
         centerTitle: false,
+        backgroundColor: AppColors.background,
+        elevation: 0,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),

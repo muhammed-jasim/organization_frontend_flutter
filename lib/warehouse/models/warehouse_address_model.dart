@@ -1,46 +1,23 @@
+import '../../shared/models/location_models.dart';
+
 class WarehouseAddressModel {
-  final int id;
-  final int warehouseId;
-  final String addressLine1;
-  final String addressLine2;
-  final int districtId;
-  final String city;
-  final String postalCode;
-  final bool isPrimary;
+  final String id;
+  final String warehouseId;
+  final AddressModel? addressDetails;
 
   WarehouseAddressModel({
     required this.id,
     required this.warehouseId,
-    required this.addressLine1,
-    required this.addressLine2,
-    required this.districtId,
-    required this.city,
-    required this.postalCode,
-    required this.isPrimary,
+    this.addressDetails,
   });
 
   factory WarehouseAddressModel.fromJson(Map<String, dynamic> json) {
     return WarehouseAddressModel(
-      id: json['id'] ?? 0,
-      warehouseId: json['warehouse'] ?? 0,
-      addressLine1: json['address_line_1'] ?? '',
-      addressLine2: json['address_line_2'] ?? '',
-      districtId: json['district'] ?? 0,
-      city: json['city'] ?? '',
-      postalCode: json['postal_code'] ?? '',
-      isPrimary: json['is_primary'] ?? false,
+      id: json['id']?.toString() ?? '',
+      warehouseId: json['warehouse']?.toString() ?? '',
+      addressDetails: json['address_details'] != null 
+          ? AddressModel.fromJson(json['address_details']) 
+          : null,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'warehouse': warehouseId,
-      'address_line_1': addressLine1,
-      'address_line_2': addressLine2,
-      'district': districtId,
-      'city': city,
-      'postal_code': postalCode,
-      'is_primary': isPrimary,
-    };
   }
 }
